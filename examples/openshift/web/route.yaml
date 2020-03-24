@@ -1,0 +1,13 @@
+objects:
+- <<: (( merge ))
+- apiVersion: v1
+  kind: Route
+  metadata:
+    name: web
+  spec:
+    host: ${DOMAIN}
+    port:
+      targetPort: http
+    to:
+      kind: Service
+      name: web

@@ -1,0 +1,657 @@
+apiVersion: v1
+kind: Template
+metadata:
+  name: jitsi
+objects:
+- apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    labels:
+      app: jitsi
+    name: web-letsencrypt-volume
+  spec:
+    accessModes:
+    - ReadWriteOnce
+    resources:
+      requests:
+        storage: 128Mi
+- apiVersion: v1
+  kind: Service
+  metadata:
+    labels:
+      app: jitsi
+    name: web
+  spec:
+    ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+    - name: https
+      port: 4443
+      targetPort: 4443
+    selector:
+      app: jitsi
+      name: web
+- apiVersion: v1
+  kind: Route
+  metadata:
+    name: web
+  spec:
+    host: ${DOMAIN}
+    port:
+      targetPort: http
+    to:
+      kind: Service
+      name: web
+- apiVersion: v1
+  kind: DeploymentConfig
+  metadata:
+    labels:
+      app: jitsi
+    name: web
+  spec:
+    replicas: 1
+    strategy:
+      type: Rolling
+    template:
+      metadata:
+        labels:
+          app: jitsi
+          name: web
+      spec:
+        containers:
+        - env:
+          - name: XMPP_BOSH_URL_BASE
+            value: http://$(PROSODY_SERVICE_HOST):$(PROSODY_SERVICE_PORT_5280)
+          - name: ETHERPAD_URL_BASE
+            value: http://$(ETHERPAD_SERVICE_HOST):$(ETHERPAD_SERVICE_PORT)
+          envFrom:
+          - configMapRef:
+              name: jitsi-config
+          - secretRef:
+              name: jitsi-secret
+          image: jitsi/web
+          imagePullPolicy: Always
+          name: web
+          ports:
+          - containerPort: 8080
+          - containerPort: 4443
+          resources: {}
+          volumeMounts:
+          - mountPath: /etc/letsencrypt
+            name: web-letsencrypt
+          - mountPath: /usr/share/jitsi-meet/transcripts
+            name: jigasi-transcripts
+        volumes:
+        - name: web-letsencrypt
+          persistentVolumeClaim:
+            claimName: web-letsencrypt-volume
+        - name: jigasi-transcripts
+          persistentVolumeClaim:
+            claimName: jigasi-transcripts-volume
+    triggers:
+    - type: ConfigChange
+  status: {}
+- apiVersion: v1
+  kind: Service
+  metadata:
+    labels:
+      app: jitsi
+    name: prosody
+  spec:
+    ports:
+    - name: "5222"
+      port: 5222
+      targetPort: 5222
+    - name: "5280"
+      port: 5280
+      targetPort: 5280
+    - name: "5347"
+      port: 5347
+      targetPort: 5347
+    selector:
+      app: jitsi
+      name: prosody
+  status:
+    loadBalancer: {}
+- apiVersion: v1
+  kind: DeploymentConfig
+  metadata:
+    labels:
+      app: jitsi
+    name: prosody
+  spec:
+    replicas: 1
+    strategy:
+      type: Rolling
+    template:
+      metadata:
+        labels:
+          app: jitsi
+          name: prosody
+      spec:
+        containers:
+        - envFrom:
+          - configMapRef:
+              name: jitsi-config
+          - secretRef:
+              name: jitsi-secret
+          image: jitsi/prosody
+          imagePullPolicy: Always
+          livenessProbe:
+            httpGet:
+              path: /http-bind
+              port: 5280
+            initialDelaySeconds: 10
+            periodSeconds: 3
+          name: prosody
+          ports:
+          - containerPort: 5222
+          - containerPort: 5280
+          - containerPort: 5347
+          readinessProbe:
+            httpGet:
+              path: /http-bind
+              port: 5280
+            initialDelaySeconds: 5
+            periodSeconds: 3
+            timeoutSeconds: 60
+          resources: {}
+        restartPolicy: Always
+    triggers:
+    - type: ConfigChange
+  status: {}
+- apiVersion: v1
+  kind: Service
+  metadata:
+    labels:
+      app: jitsi
+    name: jvb
+  spec:
+    ports:
+    - name: udp
+      nodePort: ${{JVB_PORT}}
+      port: ${{JVB_PORT}}
+      protocol: UDP
+      targetPort: ${{JVB_PORT}}
+    - name: tcp
+      nodePort: ${{JVB_TCP_PORT}}
+      port: ${{JVB_TCP_PORT}}
+      protocol: TCP
+      targetPort: ${{JVB_TCP_PORT}}
+    selector:
+      app: jitsi
+      name: jvb
+    type: NodePort
+- apiVersion: v1
+  kind: DeploymentConfig
+  metadata:
+    labels:
+      app: jitsi
+    name: jvb
+  spec:
+    replicas: 1
+    strategy:
+      type: Rolling
+    template:
+      metadata:
+        labels:
+          app: jitsi
+          name: jvb
+      spec:
+        containers:
+        - env:
+          - name: DOCKER_HOST_ADDRESS
+            valueFrom:
+              fieldRef:
+                fieldPath: status.hostIP
+          - name: XMPP_SERVER
+            value: $(PROSODY_SERVICE_HOST)
+          - name: JVB_PORT
+            value: $(JVB_SERVICE_PORT_UDP)
+          - name: JVB_TCP_PORT
+            value: $(JVB_SERVICE_PORT_TCP)
+          envFrom:
+          - configMapRef:
+              name: jitsi-config
+          - secretRef:
+              name: jitsi-secret
+          image: jitsi/jvb
+          imagePullPolicy: Always
+          livenessProbe:
+            httpGet:
+              path: /about/health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 3
+          name: jvb
+          readinessProbe:
+            httpGet:
+              path: /about/health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 3
+            timeoutSeconds: 60
+          resources: {}
+        restartPolicy: Always
+    triggers:
+    - type: ConfigChange
+  status: {}
+- apiVersion: v1
+  kind: PersistentVolumeClaim
+  metadata:
+    labels:
+      app: jitsi
+    name: jigasi-transcripts-volume
+  spec:
+    accessModes:
+    - ReadWriteOnce
+    resources:
+      requests:
+        storage: 512Mi
+- apiVersion: v1
+  kind: DeploymentConfig
+  metadata:
+    labels:
+      app: jitsi
+    name: jigasi
+  spec:
+    replicas: 1
+    strategy:
+      type: Rolling
+    template:
+      metadata:
+        labels:
+          app: jitsi
+          name: jigasi
+      spec:
+        containers:
+        - env:
+          - name: XMPP_SERVER
+            value: $(PROSODY_SERVICE_HOST)
+          envFrom:
+          - configMapRef:
+              name: jitsi-config
+          - secretRef:
+              name: jitsi-secret
+          image: jitsi/jigasi
+          imagePullPolicy: Always
+          name: jigasi
+          resources: {}
+          volumeMounts:
+          - mountPath: /tmp/transcripts
+            name: jigasi-transcripts
+        restartPolicy: Always
+        volumes:
+        - name: jigasi-transcripts
+          persistentVolumeClaim:
+            claimName: jigasi-transcripts-volume
+    triggers:
+    - type: ConfigChange
+  status: {}
+- apiVersion: v1
+  kind: DeploymentConfig
+  metadata:
+    labels:
+      app: jitsi
+    name: jicofo
+  spec:
+    replicas: 1
+    strategy:
+      type: Rolling
+    template:
+      metadata:
+        labels:
+          app: jitsi
+          name: jicofo
+      spec:
+        containers:
+        - env:
+          - name: XMPP_SERVER
+            value: $(PROSODY_SERVICE_HOST)
+          envFrom:
+          - configMapRef:
+              name: jitsi-config
+          - secretRef:
+              name: jitsi-secret
+          image: jitsi/jicofo
+          imagePullPolicy: Always
+          livenessProbe:
+            httpGet:
+              path: /about/health
+              port: 8888
+            initialDelaySeconds: 10
+            periodSeconds: 3
+          name: jicofo
+          ports:
+          - containerPort: 8888
+          readinessProbe:
+            httpGet:
+              path: /about/health
+              port: 8888
+            initialDelaySeconds: 5
+            periodSeconds: 3
+            timeoutSeconds: 60
+          resources: {}
+        restartPolicy: Always
+    triggers:
+    - type: ConfigChange
+  status: {}
+- apiVersion: v1
+  kind: DeploymentConfig
+  metadata:
+    labels:
+      app: jitsi
+    name: jibri
+  spec:
+    replicas: 1
+    strategy:
+      type: Rolling
+    template:
+      metadata:
+        labels:
+          app: jitsi
+          name: jibri
+      spec:
+        containers:
+        - env:
+          - name: DISPLAY
+            value: :0
+          - name: XMPP_SERVER
+            value: $(PROSODY_SERVICE_HOST)
+          envFrom:
+          - configMapRef:
+              name: jitsi-config
+          - secretRef:
+              name: jitsi-secret
+          image: jitsi/jibri
+          imagePullPolicy: Always
+          name: jibri
+          resources: {}
+          volumeMounts:
+          - mountPath: /dev/shm
+            name: dev-shm
+          - mountPath: /dev/snd
+            name: dev-snd
+        restartPolicy: Always
+        volumes:
+        - hostPath:
+            path: /dev/shm
+          name: dev-shm
+        - hostPath:
+            path: /dev/snd
+          name: dev-snd
+    triggers:
+    - type: ConfigChange
+  status: {}
+- apiVersion: v1
+  kind: Service
+  metadata:
+    labels:
+      app: jitsi
+    name: etherpad
+  spec:
+    ports:
+    - port: 9001
+      targetPort: 9001
+    selector:
+      app: jitsi
+      name: etherpad
+  status:
+    loadBalancer: {}
+- apiVersion: v1
+  kind: DeploymentConfig
+  metadata:
+    labels:
+      app: jitsi
+    name: etherpad
+  spec:
+    replicas: 1
+    strategy:
+      type: Rolling
+    template:
+      metadata:
+        labels:
+          app: jitsi
+          name: etherpad
+      spec:
+        containers:
+        - env:
+          - name: TITLE
+            value: ${ETHERPAD_TITLE}
+          - name: DEFAULT_PAD_TEXT
+            value: ${ETHERPAD_DEFAULT_PAD_TEXT}
+          image: etherpad/etherpad
+          imagePullPolicy: Always
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 9001
+            initialDelaySeconds: 120
+            periodSeconds: 10
+          name: etherpad
+          ports:
+          - containerPort: 9001
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 9001
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 60
+          resources: {}
+        restartPolicy: Always
+    triggers:
+    - type: ConfigChange
+  status: {}
+- apiVersion: v1
+  kind: Secret
+  metadata:
+    name: jitsi-secret
+  stringData:
+    GC_CLIENT_CERT_URL: ${GC_CLIENT_CERT_URL}
+    GC_CLIENT_EMAIL: ${GC_CLIENT_EMAIL}
+    GC_CLIENT_ID: ${GC_CLIENT_ID}
+    GC_PRIVATE_KEY: ${GC_PRIVATE_KEY}
+    GC_PRIVATE_KEY_ID: ${GC_PRIVATE_KEY_ID}
+    GC_PROJECT_ID: ${GC_PROJECT_ID}
+    JIBRI_RECORDER_PASSWORD: ${JIBRI_RECORDER_PASSWORD}
+    JIBRI_RECORDER_USER: ${JIBRI_RECORDER_USER}
+    JIBRI_XMPP_PASSWORD: ${JIBRI_XMPP_PASSWORD}
+    JIBRI_XMPP_USER: ${JIBRI_XMPP_USER}
+    JICOFO_AUTH_PASSWORD: ${JICOFO_AUTH_PASSWORD}
+    JICOFO_AUTH_USER: ${JICOFO_AUTH_USER}
+    JICOFO_COMPONENT_SECRET: ${JICOFO_COMPONENT_SECRET}
+    JIGASI_SIP_PASSWORD: ${JIGASI_SIP_PASSWORD}
+    JIGASI_XMPP_PASSWORD: ${JIGASI_XMPP_PASSWORD}
+    JIGASI_XMPP_USER: ${JIGASI_XMPP_USER}
+    JVB_AUTH_PASSWORD: ${JVB_AUTH_PASSWORD}
+    JVB_AUTH_USER: ${JVB_AUTH_USER}
+    JWT_APP_SECRET: ${JWT_APP_SECRET}
+    LDAP_BINDDN: ${LDAP_BINDDN}
+    LDAP_BINDPW: ${LDAP_BINDPW}
+- apiVersion: v1
+  data:
+    DISABLE_HTTPS: ${DISABLE_HTTPS}
+    ENABLE_AUTH: ${ENABLE_AUTH}
+    ENABLE_GUESTS: ${ENABLE_GUESTS}
+    ENABLE_HTTP_REDIRECT: ${ENABLE_HTTP_REDIRECT}
+    ENABLE_LETSENCRYPT: ${ENABLE_LETSENCRYPT}
+    ENABLE_RECORDING: ${ENABLE_RECORDING}
+    ENABLE_TRANSCRIPTIONS: ${ENABLE_TRANSCRIPTIONS}
+    GLOABL_MODULES: ${XMPP_MODULES}
+    JIBRI_BREWERY_MUC: ${JIBRI_BREWERY_MUC}
+    JIBRI_FINALIZE_RECORDING_SCRIPT_PATH: ${JIBRI_FINALIZE_RECORDING_SCRIPT_PATH}
+    JIBRI_LOGS_DIR: ${JIBRI_LOGS_DIR}
+    JIBRI_PENDING_TIMEOUT: ${JIBRI_PENDING_TIMEOUT}
+    JIBRI_RECORDING_DIR: ${JIBRI_RECORDING_DIR}
+    JIBRI_STRIP_DOMAIN_JID: ${JIBRI_STRIP_DOMAIN_JID}
+    JICOFO_RESERVATION_REST_BASE_URL: ${JICOFO_RESERVATION_REST_BASE_URL}
+    JIGASI_BREWERY_MUC: ${JIGASI_BREWERY_MUC}
+    JIGASI_ENABLE_SDES_SRTP: ${JIGASI_ENABLE_SDES_SRTP}
+    JIGASI_HEALTH_CHECK_INTERVAL: ${JIGASI_HEALTH_CHECK_INTERVAL}
+    JIGASI_HEALTH_CHECK_SIP_URI: ${JIGASI_HEALTH_CHECK_SIP_URI}
+    JIGASI_PORT_MAX: ${JIGASI_PORT_MAX}
+    JIGASI_PORT_MIN: ${JIGASI_PORT_MIN}
+    JIGASI_SIP_KEEP_ALIVE_METHOD: ${JIGASI_SIP_KEEP_ALIVE_METHOD}
+    JIGASI_SIP_PORT: ${JIGASI_SIP_PORT}
+    JIGASI_SIP_SERVER: ${JIGASI_SIP_SERVER}
+    JIGASI_SIP_TRANSPORT: ${JIGASI_SIP_TRANSPORT}
+    JIGASI_SIP_URI: ${JIGASI_SIP_URI}
+    JIGASI_TRANSCRIBER_ADVERTISE_URL: ${JIGASI_TRANSCRIBER_ADVERTISE_URL}
+    JIGASI_TRANSCRIBER_RECORD_AUDIO: ${JIGASI_TRANSCRIBER_RECORD_AUDIO}
+    JIGASI_TRANSCRIBER_SEND_TXT: ${JIGASI_TRANSCRIBER_SEND_TXT}
+    JVB_BREWERY_MUC: ${JVB_BREWERY_MUC}
+    JVB_ENABLE_APIS: ${JVB_ENABLE_APIS}
+    JVB_STUN_SERVERS: ${JVB_STUN_SERVERS}
+    JVB_TCP_HARVESTER_DISABLED: ${JVB_TCP_HARVESTER_DISABLED}
+    JWT_ACCEPTED_AUDIENCES: ${JWT_ACCEPTED_AUDIENCES}
+    JWT_ACCEPTED_ISSUERS: ${JWT_ACCEPTED_ISSUERS}
+    JWT_ALLOW_EMPTY: ${JWT_ALLOW_EMPTY}
+    JWT_APP_ID: ${JWT_APP_ID}
+    JWT_ASAP_KEYSERVER: ${JWT_ASAP_KEYSERVER}
+    JWT_AUTH_TYPE: ${JWT_AUTH_TYPE}
+    JWT_TOKEN_AUTH_MODULE: ${JWT_TOKEN_AUTH_MODULE}
+    LDAP_AUTH_METHOD: ${LDAP_AUTH_METHOD}
+    LDAP_BASE: ${LDAP_BASE}
+    LDAP_FILTER: ${LDAP_FILTER}
+    LDAP_START_TLS: ${LDAP_START_TLS}
+    LDAP_TLS_CACERT_DIR: ${LDAP_TLS_CACERT_DIR}
+    LDAP_TLS_CACERT_FILE: ${LDAP_TLS_CACERT_FILE}
+    LDAP_TLS_CHECK_PEER: ${LDAP_TLS_CHECK_PEER}
+    LDAP_TLS_CIPHERS: ${LDAP_TLS_CIPHERS}
+    LDAP_URL: ${LDAP_URL}
+    LDAP_USE_TLS: ${LDAP_USE_TLS}
+    LDAP_VERSION: ${LDAP_VERSION}
+    LETSENCRYPT_DOMAIN: ${DOMAIN}
+    LETSENCRYPT_EMAIL: ${LETSENCRYPT_EMAIL}
+    LOG_LEVEL: ${LOG_LEVEL}
+    PUBLIC_URL: http://${DOMAIN}
+    TZ: ${TZ}
+    XMPP_AUTH_DOMAIN: auth.${DOMAIN}
+    XMPP_DOMAIN: ${DOMAIN}
+    XMPP_GUEST_DOMAIN: guest.${DOMAIN}
+    XMPP_INTERNAL_MUC_DOMAIN: internal-muc.${DOMAIN}
+    XMPP_INTERNAL_MUC_MODULES: ${XMPP_INTERNAL_MUC_MODULES}
+    XMPP_MODULES: ${XMPP_MODULES}
+    XMPP_MUC_DOMAIN: muc.${DOMAIN}
+    XMPP_MUC_MODULES: ${XMPP_MUC_MODULES}
+    XMPP_RECORDER_DOMAIN: recorder.${DOMAIN}
+  kind: ConfigMap
+  metadata:
+    name: jitsi-config
+parameters:
+- name: DOMAIN
+  required: true
+- displayName: Timezone
+  name: TZ
+  required: true
+- name: LOG_LEVEL
+- name: DISABLE_HTTPS
+- name: ENABLE_HTTP_REDIRECT
+- name: ENABLE_AUTH
+- name: AUTH_TYPE
+- name: ENABLE_GUESTS
+- name: JWT_APP_ID
+- name: JWT_APP_SECRET
+- name: JWT_ACCEPTED_ISSUERS
+- name: JWT_ACCEPTED_AUDIENCES
+- name: JWT_ASAP_KEYSERVER
+- name: JWT_ALLOW_EMPTY
+- name: JWT_AUTH_TYPE
+- name: JWT_TOKEN_AUTH_MODULE
+- name: LDAP_URL
+- name: LDAP_BASE
+- name: LDAP_BINDDN
+- name: LDAP_BINDPW
+- name: LDAP_FILTER
+- name: LDAP_AUTH_METHOD
+- name: LDAP_VERSION
+- name: LDAP_USE_TLS
+- name: LDAP_TLS_CIPHERS
+- name: LDAP_TLS_CHECK_PEER
+- name: LDAP_TLS_CACERT_FILE
+- name: LDAP_TLS_CACERT_DIR
+- name: LDAP_START_TLS
+- name: JVB_ENABLE_APIS
+  required: true
+- name: JVB_PORT
+  required: true
+- name: JVB_TCP_HARVESTER_DISABLED
+  required: true
+- name: JVB_TCP_PORT
+  required: true
+- name: JVB_BREWERY_MUC
+  required: true
+- name: JVB_AUTH_USER
+  required: true
+- name: JVB_AUTH_PASSWORD
+  required: true
+- name: JVB_STUN_SERVERS
+  required: true
+- name: JICOFO_COMPONENT_SECRET
+  required: true
+- name: JICOFO_AUTH_USER
+  required: true
+- name: JICOFO_AUTH_PASSWORD
+  required: true
+- name: JICOFO_RESERVATION_REST_BASE_URL
+- name: GLOBAL_CONFIG
+- name: GLOBAL_MODULES
+- name: XMPP_MODULES
+- name: XMPP_MUC_MODULES
+- name: XMPP_INTERNAL_MUC_MODULES
+- name: JIGASI_XMPP_USER
+  required: true
+- name: JIGASI_XMPP_PASSWORD
+  required: true
+- name: JIGASI_BREWERY_MUC
+  required: true
+- name: JIGASI_PORT_MIN
+  required: true
+- name: JIGASI_PORT_MAX
+  required: true
+- name: JIGASI_HEALTH_CHECK_SIP_URI
+- name: JIGASI_SIP_PASSWORD
+- name: JIGASI_SIP_SERVER
+- name: JIGASI_SIP_PORT
+- name: JIGASI_SIP_TRANSPORT
+- name: JIGASI_ENABLE_SDES_SRTP
+- name: JIGASI_SIP_KEEP_ALIVE_METHOD
+- name: JIGASI_HEALTH_CHECK_SIP_URI
+- name: JIGASI_HEALTH_CHECK_INTERVAL
+- name: ENABLE_TRANSCRIPTIONS
+- name: JIGASI_TRANSCRIBER_RECORD_AUDIO
+- name: JIGASI_TRANSCRIBER_SEND_TXT
+- name: JIGASI_TRANSCRIBER_ADVERTISE_URL
+- name: GC_PROJECT_ID
+- name: GC_PRIVATE_KEY_ID
+- name: GC_PRIVATE_KEY
+- name: GC_CLIENT_EMAIL
+- name: GC_CLIENT_ID
+- name: GC_CLIENT_CERT_URL
+- name: ENABLE_RECORDING
+- name: JIBRI_RECORDER_USER
+  required: true
+- name: JIBRI_RECORDER_PASSWORD
+  required: true
+- name: JIBRI_RECORDING_DIR
+  required: true
+- name: JIBRI_FINALIZE_RECORDING_SCRIPT_PATH
+  required: true
+- name: JIBRI_XMPP_USER
+  required: true
+- name: JIBRI_XMPP_PASSWORD
+  required: true
+- name: JIBRI_BREWERY_MUC
+  required: true
+- name: JIBRI_PENDING_TIMEOUT
+  required: true
+- name: JIBRI_STRIP_DOMAIN_JID
+  required: true
+- name: JIBRI_LOGS_DIR
+  required: true
+- name: ENABLE_LETSENCRYPT
+- name: LETSENCRYPT_EMAIL
+- name: ETHERPAD_TITLE
+- name: ETHERPAD_DEFAULT_PAD_TEXT
