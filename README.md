@@ -420,6 +420,11 @@ Variable | Description | Default value
 `DISABLE_HTTPS` | Handle TLS connections outside of this setup | 1
 `ENABLE_HTTP_REDIRECT` | Redirect HTTP traffic to HTTPS (necessary for Let's Encrypt) | 1
 `LOG_LEVEL` | Controls which logs are output from prosody and associated modules | info
+`SENTRY_DSN_JICOFO` | Enables [Sentry error tracking](#error-tracking) for jicofo | none
+`SENTRY_DSN_JVB` | Enables [Sentry error tracking](#error-tracking) for videobridge | none
+`SENTRY_DSN_JIGASI` | Enables [Sentry error tracking](#error-tracking) for jigasi | none
+`SENTRY_ENVIRONMENT` | Optional environment info to filter events | none
+`SENTRY_RELEASE` | Optional release info to filter events | (version of application)
 
 ### Running behind NAT or on a LAN environment
 
@@ -430,6 +435,18 @@ succeed. If your users are coming in over the Internet (and not over LAN), this 
 
 The public IP address is discovered via [STUN]. STUN servers can be specified with the ``JVB_STUN_SERVERS``
 option.
+
+### Error Tracking
+To stay informed about problems occuring on your deployment you can use [Sentry](https://sentry.io/).
+
+To activate and configure Sentry you have to set the `SENTRY_DSN` environment variable for the containers you want to monitor. Each container should have it's own DSN. More information including all configartion options you can find [here](https://docs.sentry.io/clients/java/config).
+
+You can also set a release and environment to filter for possible errors and warnings more easily. These can be configured by defining `SENTRY_ENVIRONMENT` and `SENTRY_RELEASE` environment variables.
+
+Currently available for:
+* JVB
+* Jicofo
+* Jigasi
 
 ## Build Instructions
 

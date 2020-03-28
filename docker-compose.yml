@@ -125,6 +125,9 @@ services:
             - JIGASI_SIP_URI
             - JIBRI_BREWERY_MUC
             - JIBRI_PENDING_TIMEOUT
+            - SENTRY_DSN="${SENTRY_DSN_JICOFO}"
+            - SENTRY_ENVIRONMENT
+            - SENTRY_RELEASE
             - TZ
         depends_on:
             - prosody
@@ -152,6 +155,9 @@ services:
             - JVB_TCP_PORT
             - JVB_STUN_SERVERS
             - JVB_ENABLE_APIS
+            - SENTRY_DSN="${SENTRY_DSN_JVB}"
+            - SENTRY_ENVIRONMENT
+            - SENTRY_RELEASE
             - TZ
         depends_on:
             - prosody

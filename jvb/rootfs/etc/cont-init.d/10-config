@@ -1,11 +1,13 @@
 #!/usr/bin/with-contenv bash
 
+export SENTRY_RELEASE="${SENTRY_RELEASE:-$(apt-cache policy jitsi-videobridge2 | sed -n '/Installed/p' | sed -e 's/[^:]*: //')}"
+
 if [[ ! -f /config/sip-communicator.properties ]]; then
     tpl /defaults/sip-communicator.properties > /config/sip-communicator.properties
 fi
 
 if [[ ! -f /config/logging.properties ]]; then
-    cp /defaults/logging.properties /config
+    tpl /defaults/logging.properties > /config/logging.properties
 fi
 
 chown -R jvb:jitsi /config

@@ -149,6 +149,7 @@ authentication = "internal_plain"
 --  Logs errors to syslog also
 log = {
 	{ levels = {min = "{{ $LOG_LEVEL }}"}, to = "console"};
+	{ levels = {min = "warn"}, to = "syslog"};
 }
 
 {{ if .Env.GLOBAL_CONFIG }}
