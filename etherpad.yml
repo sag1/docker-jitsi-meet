@@ -3,7 +3,10 @@ version: '3'
 services:
     # Etherpad: real-time collaborative document editing
     etherpad:
-        image: jitsi/etherpad
+        image: etherpad/etherpad
+        environment:
+            - TITLE="${ETHERPAD_TITLE}"
+            - DEFAULT_PAD_TEXT="${ETHERPAD_DEFAULT_PAD_TEXT}"
         networks:
             meet.jitsi:
                 aliases:
